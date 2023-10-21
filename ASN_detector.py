@@ -27,11 +27,12 @@ def sanitize_det(DetA, Dx2,Dy2,DxDy, threshold_sol_determinant,threshold_ratio_e
     DetA[ S1S2>1/threshold_ratio_eigenvalues ] = np.inf
     return DetA
     
+def alloc_matrix_list(width, height):    
+    return [ [ [] for i in range(width) ] for j in range(height) ]
 
-def ASN_detector(img,threshold_min_nb_solutions = 20, threshold_sol_determinant = 1e-6, threshold_ratio_eigenvalues = 0.1):
+def ASN_detector(img,threshold_min_nb_solutions = 20, threshold_sol_determinant = 1e-6, threshold_ratio_eigenvalues = 0.1, config_sobel_kernel_size=7, config_integration_for_solution_size=25):
         
-    config_sobel_kernel_size = 7
-    config_integration_for_solution_size = 25
+    use_bilinear_fit = 0
 
     integration_windows = disk(config_integration_for_solution_size,config_integration_for_solution_size)
     integration_windows /= np.sum(integration_windows.flatten())
@@ -64,6 +65,10 @@ def ASN_detector(img,threshold_min_nb_solutions = 20, threshold_sol_determinant 
     localSolutionY = (Dx2*(Dy2Y+DxDyX)-DxDy*(Dx2X+DxDyY))/(DetA)
 
     accumulateur = np.zeros(img.shape)
+    accumulateurXY = alloc_matrix_list(img.shape[1],img.shape[0])
+    convergence_regions = np.zeros(img.shape)
+
+    
     for i in range(img.shape[0]):
         for j in range(img.shape[1]):
             sol_x = localSolutionX[i,j]
@@ -76,6 +81,8 @@ def ASN_detector(img,threshold_min_nb_solutions = 20, threshold_sol_determinant 
                     sol_x_f = sol_x-sol_x_i
                     sol_y_f = sol_y-sol_y_i
 
+                    
+
                     if sol_x>1 and sol_x<img.shape[1]-1 and sol_y>1 and sol_y<img.shape[0]-1:
                         #accumulateur[sol_y,sol_x] += 1
                         # p1--------p2
@@ -86,6 +93,9 @@ def ASN_detector(img,threshold_min_nb_solutions = 20, threshold_sol_determinant 
                         accumulateur[sol_y_i+1,sol_x_i] += (1-sol_x_f)*(sol_y_f)
                         accumulateur[sol_y_i,sol_x_i+1] += (sol_x_f)*(1-sol_y_f)
                         accumulateur[sol_y_i+1,sol_x_i+1] += (sol_x_f)*(sol_y_f)
+
+                        accumulateurXY[sol_y_i][sol_x_i].append((j,i))
+                        
 
 
     #find local max, find subpixel by fitting quadric on accumulator values. max is where derivatives are 0
@@ -101,24 +111,64 @@ def ASN_detector(img,threshold_min_nb_solutions = 20, threshold_sol_determinant 
     
     pts = []
     for i in range(1,accumulateur.shape[0]-1):
-        for j in range(1,accumulateur.shape[1]-1):
+        for j in range(1,accumulateur.shape[1]-1):            
             sub_img = accumulateur[i-1:i+2,j-1:j+2]
-            if sub_img[1,1]>threshold_min_nb_solutions:
-            
+            #enough solution for this position?
+            if sub_img[1,1]>threshold_min_nb_solutions:            
                 mmax = sub_img[1,1]>sub_img            
                 mmax[1,1]=True
+                #is a local maximum?
                 if mmax.all():
-                    b = np.array(sub_img.flatten())
-                    quadric = iAtA_At@b
-                    a_ = quadric[0]
-                    b_ = quadric[1]
-                    c_ = quadric[2]
-                    d_ = quadric[3]
-                    e_ = quadric[4]
-                    f_ = quadric[5]
-                    den = (4*a_*c_-b_**2)
-                    x = [ (b_*e_-2*c_*d_) / den, (b_*d_-2*a_*e_) / den ]
-                    pts.append([j+x[0],i+x[1]])
+                    
+                    
+                    
+                    if use_bilinear_fit==0:
+                        #create a new solution with all contributors
+                        dx2_ = 0
+                        dx2x_ = 0
+                        dy2_ = 0
+                        dy2y_ = 0                  
+                        dxdy_ = 0
+                        dxdyx_ = 0
+                        dxdyy_ = 0
+
+
+                        for ii in range(i-1,i+2):
+                            for jj in range(j-1,j+2):
+                                dd = accumulateurXY[ii][jj]
+                                for cc_to_add in accumulateurXY[ii][jj]:
+                                    #use integrated matrix, will give more importance to redundant region of the mask
+                                    dx2_ += Dx2[cc_to_add[1],cc_to_add[0]]
+                                    dx2x_ += Dx2X[cc_to_add[1],cc_to_add[0]]
+                                    dy2_ += Dy2[cc_to_add[1],cc_to_add[0]]
+                                    dy2y_ += Dy2Y[cc_to_add[1],cc_to_add[0]]
+                                    dxdy_ += DxDy[cc_to_add[1],cc_to_add[0]]
+                                    dxdyx_ += DxDyX[cc_to_add[1],cc_to_add[0]]
+                                    dxdyy_ += DxDyY[cc_to_add[1],cc_to_add[0]]
+                                    convergence_regions[cc_to_add[1],cc_to_add[0]] = 255
+
+                        detA_ = dx2_*dy2_-dxdy_**2                    
+                        solution_X = (dy2_*(dx2x_+dxdyy_)-dxdy_*(dy2y_+dxdyx_))/(detA_)
+                        solution_Y = (dx2_*(dy2y_+dxdyx_)-dxdy_*(dx2x_+dxdyy_))/(detA_)
+                        pts.append([solution_X,solution_Y])
+                        
+                    #bilinear fit
+                    if use_bilinear_fit==1:
+                        b = np.array(sub_img.flatten())
+                        quadric = iAtA_At@b
+                        a_ = quadric[0]
+                        b_ = quadric[1]
+                        c_ = quadric[2]
+                        d_ = quadric[3]
+                        e_ = quadric[4]
+                        f_ = quadric[5]
+                        den = (4*a_*c_-b_**2)
+                        x = [ (b_*e_-2*c_*d_) / den, (b_*d_-2*a_*e_) / den ]
+                        fitted_solution = [j+x[0],i+x[1]]
+                        pts.append(fitted_solution)
+
+
+
 
     pts = np.array(pts)
 
@@ -126,6 +176,5 @@ def ASN_detector(img,threshold_min_nb_solutions = 20, threshold_sol_determinant 
     
     
 
-
-    return pts, accumulateur
+    return pts, accumulateur, convergence_regions
 
