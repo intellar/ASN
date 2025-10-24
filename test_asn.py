@@ -48,7 +48,7 @@ def display_results(img: np.ndarray, pts: np.ndarray, accumulateur: np.ndarray, 
 
 def main():
     parser = argparse.ArgumentParser(description="Run ASN corner detector on an image.")
-    parser.add_argument("image_path", nargs='?', default="./raw_camera_0_index_0.png", help="Path to the input image.")
+    parser.add_argument("image_path", nargs='?', default="./img_test_2.png", help="Path to the input image.")
     args = parser.parse_args()
 
     img = cv2.imread(args.image_path, cv2.IMREAD_GRAYSCALE)
@@ -57,7 +57,7 @@ def main():
         return
 
     # Example config. Try toggling use_fast_square_integration to see the performance difference.
-    config = ASNConfig(threshold_min_nb_solutions=20, use_fast_square_integration=False)
+    config = ASNConfig(threshold_min_nb_solutions=75, integration_size=75, use_fast_square_integration=False)
 
     print("Running ASN detector...")
     start_detection = time.perf_counter()
