@@ -181,9 +181,9 @@ def _find_and_refine_peaks(
     peak_coords = np.argwhere(is_peak)
     
     pts = []
-    convergence_regions = np.zeros(img_shape)
+    convergence_regions = np.zeros(img_shape, dtype=np.int32)
 
-    for i, j in peak_coords:
+    for peak_id, (i, j) in enumerate(peak_coords, 1): # Start peak IDs from 1
         # --- ASN Refinement ---
         # Get indices of the 3x3 neighborhood in the accumulator
         y_range, x_range = np.mgrid[i-1:i+2, j-1:j+2]
@@ -211,7 +211,7 @@ def _find_and_refine_peaks(
         dxdyx_ = DxDyX[contrib_y, contrib_x].sum()
         dxdyy_ = DxDyY[contrib_y, contrib_x].sum()
         
-        convergence_regions[contrib_y, contrib_x] = 255
+        convergence_regions[contrib_y, contrib_x] = peak_id
         
         detA_ = dx2_ * dy2_ - dxdy_**2
         if abs(detA_) > 1e-9:
@@ -233,7 +233,7 @@ def ASN_detector(img: np.ndarray, config: ASNConfig = ASNConfig()) -> Tuple[np.n
         A tuple containing:
         - pts: An array of [x, y] coordinates for detected corners.
         - accumulateur: The accumulator array showing vote distribution.
-        - convergence_regions: An image highlighting pixels that contributed to corners.
+        - convergence_regions: A labeled image where each region has a unique ID corresponding to a keypoint.
     """
     tensors = _calculate_structure_tensors(img, config)
     Dx2, Dy2, DxDy, Dx2X, Dy2Y, DxDyX, DxDyY = tensors
